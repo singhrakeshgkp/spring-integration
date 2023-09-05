@@ -5,6 +5,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.integration.core.GenericHandler;
+import org.springframework.integration.core.GenericTransformer;
 import org.springframework.integration.core.MessageSource;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.MessageChannels;
@@ -28,7 +29,7 @@ public class SpringIntegApplication {
 	}
 
   @Bean
-  IntegrationFlow sendMsgToExplicitChannel() {
+  IntegrationFlow flow() {
     return IntegrationFlow.from(
             (MessageSource<String>)
                 () ->
@@ -36,19 +37,15 @@ public class SpringIntegApplication {
                             "Hi welcome to spring integration demo " + Instant.now() + " ")
                         .build(),
             poller -> poller.poller(pm -> pm.fixedRate(1000)))
-        .channel(myChannel())
+				/*Additional steps so we can keep on going. this will transfor the msg in upper case*/
+				.transform((GenericTransformer<String, String>) source -> source.toUpperCase())
+				.handle(
+						(GenericHandler<String>)
+								(payload, headers) -> {
+									System.out.println("payload is :- "+payload);
+									return null;//returns null its also terminate/end of the flow
+								})
         .get();
   }
 
-	@Bean
-	IntegrationFlow listenerFlow(){
-    return IntegrationFlow.from(myChannel())
-        .handle(
-            (GenericHandler<String>)
-                (payload, headers) -> {
-                  System.out.println("payload is :- "+payload);
-									return null;//returns null its also terminate/end of the flow
-                })
-        .get();
-	}
 }
