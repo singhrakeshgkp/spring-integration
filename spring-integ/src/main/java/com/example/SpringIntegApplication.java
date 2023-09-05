@@ -20,13 +20,15 @@ public class SpringIntegApplication {
 		SpringApplication.run(SpringIntegApplication.class, args);
 	}
 
+	/*Message channel is kind of pipe, the message moves through channel to components
+	* to another channel to another component so on until it eventually terminates.*/
 	@Bean
 	MessageChannel myChannel(){
 		return MessageChannels.direct().getObject();
 	}
 
   @Bean
-  IntegrationFlow flow() {
+  IntegrationFlow sendMsgToExplicitChannel() {
     return IntegrationFlow.from(
             (MessageSource<String>)
                 () ->
@@ -39,13 +41,13 @@ public class SpringIntegApplication {
   }
 
 	@Bean
-	IntegrationFlow flow1(){
+	IntegrationFlow listenerFlow(){
     return IntegrationFlow.from(myChannel())
         .handle(
             (GenericHandler<String>)
                 (payload, headers) -> {
                   System.out.println("payload is :- "+payload);
-									return null;
+									return null;//returns null its also terminate/end of the flow
                 })
         .get();
 	}
