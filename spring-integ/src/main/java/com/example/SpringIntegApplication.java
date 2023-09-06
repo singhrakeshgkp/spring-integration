@@ -1,5 +1,6 @@
 package com.example;
 
+import java.io.File;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -15,17 +16,21 @@ import org.springframework.integration.core.MessageSource;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.MessageChannels;
 import org.springframework.integration.dsl.context.IntegrationFlowContext;
+import org.springframework.integration.file.dsl.Files;
+import org.springframework.integration.file.transformer.FileToStringTransformer;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
+import org.springframework.util.SystemPropertyUtils;
 
 @SpringBootApplication
 public class SpringIntegApplication {
 
-  public static void main(String[] args) {
+  public static void main(String[] args) throws InterruptedException {
     SpringApplication.run(SpringIntegApplication.class, args);
+    Thread.currentThread().join();
   }
 
   /*Message channel is kind of pipe, the message moves through channel to components
@@ -35,42 +40,53 @@ public class SpringIntegApplication {
     return MessageChannels.direct().getObject();
   }
 
-	private static String msg(){
-		double number =  Math.random();
-		return number >.29 ?"Hi This is Even Number "+Instant.now()+" number "+number+"": "Hi This is Odd number, and number is "+number;
-	}
 
-	@Component
-	static class MsgSource  implements  MessageSource<String>{
+  static final String REQUESTS_CHANNEL = "requests";
+  static final String REPLIES_CHANNEL = "replies";
+  @Bean(name = REQUESTS_CHANNEL)
+  MessageChannel requests(){
+    return  MessageChannels.direct().getObject();
+  }
 
-		@Override
-		public Message<String> receive() {
-			return MessageBuilder.withPayload(msg()).build();
-		}
-	}
+  @Bean(name=REPLIES_CHANNEL)
+  MessageChannel replies(){
+   return MessageChannels.direct().getObject();
+  }
 
 	@Bean
-	ApplicationRunner runner(MsgSource msgSource, IntegrationFlowContext context){
-		return args -> {
-var evenFlow = getFlow(msgSource,1,"Even");
-		 var oddFlow = getFlow(msgSource,3,"Odd");
-			List.of(evenFlow,oddFlow).forEach(
-					flow -> context.registration(flow).register().start());
-		};
+	IntegrationFlow inboundFlow(){
+		var dir = new File(SystemPropertyUtils.resolvePlaceholders("${HOME}/Desktop/in"));
+		var files = Files.inboundAdapter(dir).autoCreateDirectory(true);
+    return IntegrationFlow.from(files, poller -> poller.poller(pm -> pm.fixedRate(1000)))
+        .transform(new FileToStringTransformer())
+        .handle(
+            (GenericHandler<String>) (payload, headers) -> {
+              System.out.println("inbound flow start");
+              headers.forEach((key, value) -> System.out.println(key + " = " + value));
+              return payload;
+            }).channel(requests())
+        .get();
 	}
 
-
-  IntegrationFlow getFlow(MessageSource messageSource, int seconds, String filteredMsg) {
-    return IntegrationFlow.from(messageSource,
-            poller -> poller.poller(pm -> pm.fixedRate(seconds*1000)))
-				.filter(String.class,source -> source.contains(filteredMsg))
-        .transform((GenericTransformer<String, String>) source -> source.toUpperCase())
-        .handle(
-            (GenericHandler<String>)
-                (payload, headers) -> {
-                  System.out.println("payload for filtered msg [ " +filteredMsg+"] is, "+ payload);
-                  return null; // returns null its also terminate/end of the flow
-                })
+  @Bean
+  IntegrationFlow flow(){
+    return IntegrationFlow
+        .from(requests())
+        .filter(String.class,source->source.contains("Welcome"))
+        .transform((GenericTransformer<String, String>)  String::toUpperCase)
+        .channel(replies())
         .get();
   }
+@Bean
+IntegrationFlow outboundFlow(){
+    var dir = new File(SystemPropertyUtils.resolvePlaceholders("${HOME}/Desktop/out"));
+    return IntegrationFlow
+        .from(replies())
+        .handle((payload, headers) -> {
+          System.out.println("inside outbound flow");
+          headers.forEach((key,value)->System.out.println(key +" = "+value));
+          return payload;
+        }).handle(Files.outboundAdapter(dir).autoCreateDirectory(true))
+        .get();
+}
 }
